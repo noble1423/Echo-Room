@@ -132,6 +132,52 @@
     background: var(--glass); border:1px solid var(--glass-border); color:var(--text-dim);
     display:none;
   }
+
+  /* ---- Auth screen ---- */
+  #auth-screen{
+    position:fixed; inset:0; z-index:60;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:32px; text-align:center;
+    background: radial-gradient(ellipse at 50% 30%, #12131f 0%, var(--void) 70%);
+    transition: opacity 0.6s ease;
+  }
+  #auth-screen.hidden{ opacity:0; pointer-events:none; }
+  #auth-screen h1{
+    font-size:24px; font-weight:300; letter-spacing:0.08em; margin:0 0 4px;
+    background: linear-gradient(135deg, #fff, var(--violet));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  #auth-screen p.sub{ font-size:13px; color:var(--text-dim); margin:0 0 26px; }
+  #auth-tabs{
+    display:flex; gap:4px; padding:4px; border-radius:999px;
+    background: var(--glass); border:1px solid var(--glass-border);
+    margin-bottom:20px;
+  }
+  .auth-tab{
+    padding:8px 20px; border-radius:999px; font-size:13px; color:var(--text-dim);
+    background:transparent; border:none;
+  }
+  .auth-tab.active{ background: rgba(255,255,255,0.14); color:#fff; }
+  #auth-form{ width:100%; max-width:280px; display:flex; flex-direction:column; gap:12px; }
+  #auth-form input{
+    width:100%; padding:13px 16px; border-radius:14px;
+    background: var(--glass); border:1px solid var(--glass-border);
+    color:#fff; font-size:15px; outline:none;
+  }
+  #auth-form input::placeholder{ color: rgba(230,230,240,0.35); }
+  #auth-submit{
+    margin-top:6px; padding:14px; border-radius:14px; border:1px solid var(--glass-border);
+    background: linear-gradient(135deg, rgba(255,179,122,0.25), rgba(138,162,255,0.2));
+    color:#fff; font-size:14px; letter-spacing:0.04em;
+  }
+  #auth-error{
+    min-height:18px; font-size:12px; color:#ff9c9c; margin-top:4px;
+  }
+  #logout-btn{
+    pointer-events:auto; font-size:11px; color:var(--text-dim);
+    background:transparent; border:none; padding:0 0 0 6px;
+    text-decoration: underline; text-underline-offset:2px;
+  }
 </style>
 </head>
 <body>
@@ -139,8 +185,23 @@
 <div id="canvas-wrap"></div>
 <div id="look-layer"></div>
 
-<div id="hud-top">ความทรงจำในห้อง&nbsp;<b id="mem-count">0</b></div>
+<div id="hud-top">ความทรงจำในห้อง&nbsp;<b id="mem-count">0</b><button id="logout-btn">ออกจากระบบ</button></div>
 <button id="permission-btn">เปิดการเอียงมือถือ</button>
+
+<div id="auth-screen">
+  <h1>ECHO ROOM</h1>
+  <p class="sub">ห้องของใครก็ของคนนั้น เข้าระบบก่อนถึงจะได้ยินเสียงตัวเอง</p>
+  <div id="auth-tabs">
+    <button class="auth-tab active" data-mode="login">เข้าสู่ระบบ</button>
+    <button class="auth-tab" data-mode="signup">สมัครใหม่</button>
+  </div>
+  <form id="auth-form">
+    <input id="auth-username" type="email" placeholder="อีเมล" autocomplete="email" required>
+    <input id="auth-password" type="password" placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)" autocomplete="current-password" required>
+    <button type="submit" id="auth-submit">เข้าห้อง</button>
+    <div id="auth-error"></div>
+  </form>
+</div>
 
 <div id="memory-caption"></div>
 
@@ -159,52 +220,107 @@
 
 <div id="intro">
   <h1>ECHO ROOM</h1>
-  <p>ห้องว่างที่จำเสียงคุณไว้<br>ไม่มี feed ไม่มี timeline<br>ต้องเดินเข้าไปหาเสียงเก่าๆ ถึงจะได้ยินมันอีกครั้ง</p>
+  <p>ห้องว่างที่จำเสียงมึงไว้<br>ไม่มี feed ไม่มี timeline<br>ต้องเดินเข้าไปหาเสียงเก่าๆ ถึงจะได้ยินมันอีกครั้ง</p>
   <button id="enter-btn">เข้าห้อง</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>
+<script type="module">
+  // ==================================================================
+  // FIREBASE SETUP — paste your project's config here.
+  // Firebase Console > Project settings > General > Your apps > SDK setup
+  // ==================================================================
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+    onAuthStateChanged, signOut
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getFirestore, collection, addDoc, query, where, getDocs, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import {
+    getStorage, ref, uploadBytes, getDownloadURL
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCgjy2MQSqvfp5v9Soj3D58n5TMVtAjrzk",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const auth = getAuth(fbApp);
+  const firestore = getFirestore(fbApp);
+  const storage = getStorage(fbApp);
+
 (function(){
   "use strict";
 
   // ------------------------------------------------------------------
-  // IndexedDB persistence
+  // Auth (Firebase — accounts + sessions are handled by Firebase Auth,
+  // memories sync to the same account across every device)
   // ------------------------------------------------------------------
-  const DB_NAME = "echoRoomDB";
-  const STORE = "memories";
-  let db;
+  let currentUser = null; // Firebase User object once logged in
 
-  function openDB(){
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = (e) => {
-        const database = e.target.result;
-        if(!database.objectStoreNames.contains(STORE)){
-          database.createObjectStore(STORE, { keyPath: "id" });
-        }
-      };
-      req.onsuccess = (e) => resolve(e.target.result);
-      req.onerror = (e) => reject(e);
+  async function signup(email, password){
+    await createUserWithEmailAndPassword(auth, email, password);
+  }
+
+  async function login(email, password){
+    await signInWithEmailAndPassword(auth, email, password);
+  }
+
+  async function logoutFirebase(){
+    await signOut(auth);
+  }
+
+  // ------------------------------------------------------------------
+  // Cloud persistence — Firestore (metadata) + Storage (audio files)
+  // ------------------------------------------------------------------
+  const MEMORIES_COLLECTION = "memories";
+
+  async function putMemory(mem, audioBlob){
+    const storagePath = `memories/${currentUser.uid}/${mem.id}`;
+    const storageRef = ref(storage, storagePath);
+    await uploadBytes(storageRef, audioBlob, { contentType: audioBlob.type || "application/octet-stream" });
+    const audioUrl = await getDownloadURL(storageRef);
+
+    await addDoc(collection(firestore, MEMORIES_COLLECTION), {
+      localId: mem.id,
+      owner: currentUser.uid,
+      x: mem.x, y: mem.y, z: mem.z,
+      createdAt: serverTimestamp(),
+      textHint: mem.textHint || "",
+      audioUrl
     });
   }
 
-  function putMemory(mem){
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(mem);
-      tx.oncomplete = () => resolve();
-      tx.onerror = (e) => reject(e);
-    });
-  }
-
-  function getAllMemories(){
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, "readonly");
-      const req = tx.objectStore(STORE).getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = (e) => reject(e);
-    });
+  async function getMyMemories(){
+    const q = query(collection(firestore, MEMORIES_COLLECTION), where("owner", "==", currentUser.uid));
+    const snap = await getDocs(q);
+    const results = [];
+    for(const docSnap of snap.docs){
+      const data = docSnap.data();
+      let audioBuffer = null;
+      try{
+        const res = await fetch(data.audioUrl);
+        audioBuffer = await res.arrayBuffer();
+      }catch(err){
+        console.warn("could not fetch memory audio", err);
+        continue;
+      }
+      results.push({
+        id: data.localId || docSnap.id,
+        x: data.x, y: data.y, z: data.z,
+        createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
+        textHint: data.textHint || "",
+        audio: audioBuffer
+      });
+    }
+    return results;
   }
 
   // ------------------------------------------------------------------
@@ -215,6 +331,7 @@
     if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     return audioCtx;
   }
+
 
   let mediaRecorder = null;
   let recordedChunks = [];
@@ -234,7 +351,7 @@
       mediaRecorder.onstop = () => {
         micStream.getTracks().forEach(t => t.stop());
         const blob = new Blob(recordedChunks, { type: "audio/webm" });
-        blob.arrayBuffer().then(resolve);
+        resolve(blob);
       };
       mediaRecorder.stop();
     });
@@ -268,7 +385,8 @@
       osc.stop(start + 0.3);
     }
     const rendered = await offline.startRendering();
-    return audioBufferToWav(rendered);
+    const wavBuffer = audioBufferToWav(rendered);
+    return new Blob([wavBuffer], { type: "audio/wav" });
   }
 
   function audioBufferToWav(buffer){
@@ -544,20 +662,21 @@
     if(!isRecording) return;
     isRecording = false;
     recordBtn.classList.remove("recording");
-    recordLabel.textContent = "กดค้างเพื่อพูด";
+    recordLabel.textContent = "กำลังอัปโหลด...";
 
-    let arrayBuffer, textHint = "";
+    let audioBlob, textHint = "";
     if(micAvailable && mediaRecorder){
-      arrayBuffer = await stopMicRecording();
-      if(!arrayBuffer || arrayBuffer.byteLength < 800){
+      audioBlob = await stopMicRecording();
+      if(!audioBlob || audioBlob.size < 800){
         // too short / empty, fall back
-        arrayBuffer = null;
+        audioBlob = null;
       }
     }
-    if(!arrayBuffer){
+    if(!audioBlob){
       textHint = prompt("ไม่มีเสียงอัดได้ พิมพ์อะไรสักอย่างแทนก็ได้:", "") || "echo";
-      arrayBuffer = await synthesizeFromText(textHint);
+      audioBlob = await synthesizeFromText(textHint);
     }
+    const arrayBuffer = await audioBlob.arrayBuffer();
 
     // place new memory a short distance in front of the player, with jitter
     const forward = new THREE.Vector3(0,0,-1).applyQuaternion(yawGroup.quaternion);
@@ -567,14 +686,20 @@
     const mem = {
       id: "mem_" + Date.now(),
       x: pos.x, y: pos.y, z: pos.z,
-      createdAt: new Date().toISOString(),
       textHint: textHint,
       audio: arrayBuffer
     };
-    await putMemory(mem);
-    addMemoryToScene(mem);
 
-    if(navigator.vibrate) navigator.vibrate([30, 40, 30]);
+    try{
+      await putMemory(mem, audioBlob);
+      addMemoryToScene(mem);
+      recordLabel.textContent = "กดค้างเพื่อพูด";
+      if(navigator.vibrate) navigator.vibrate([30, 40, 30]);
+    }catch(err){
+      console.error("upload failed", err);
+      recordLabel.textContent = "อัปโหลดไม่สำเร็จ ลองใหม่";
+      setTimeout(() => { recordLabel.textContent = "กดค้างเพื่อพูด"; }, 2500);
+    }
   }
 
   recordBtn.addEventListener("touchstart", (e) => { e.preventDefault(); beginRecord(); }, { passive:false });
@@ -656,15 +781,106 @@
   });
 
   // ------------------------------------------------------------------
-  // Boot
+  // Scene reset (used on logout / account switch)
   // ------------------------------------------------------------------
-  async function boot(){
-    db = await openDB();
-    const existing = await getAllMemories();
-    existing.forEach(addMemoryToScene);
-    animate();
+  function clearSceneMemories(){
+    for(const m of memoryMeshes){ scene.remove(m.group); }
+    memoryMeshes.length = 0;
+    document.getElementById("mem-count").textContent = "0";
   }
-  boot();
+
+  let sceneAnimating = false;
+
+  async function loadMemoriesForCurrentUser(){
+    clearSceneMemories();
+    const mine = await getMyMemories();
+    mine.forEach(addMemoryToScene);
+    if(!sceneAnimating){ sceneAnimating = true; animate(); }
+  }
+
+  // ------------------------------------------------------------------
+  // Auth screen wiring
+  // ------------------------------------------------------------------
+  const authScreen = document.getElementById("auth-screen");
+  const authForm = document.getElementById("auth-form");
+  const authError = document.getElementById("auth-error");
+  const authTabs = document.querySelectorAll(".auth-tab");
+  const authSubmit = document.getElementById("auth-submit");
+  let authMode = "login";
+
+  function friendlyAuthError(err){
+    const code = err && err.code || "";
+    const map = {
+      "auth/email-already-in-use": "อีเมลนี้สมัครไว้แล้ว ลองเข้าสู่ระบบแทน",
+      "auth/invalid-email": "รูปแบบอีเมลไม่ถูกต้อง",
+      "auth/weak-password": "รหัสผ่านสั้นไป ต้องอย่างน้อย 6 ตัวอักษร",
+      "auth/user-not-found": "ไม่พบบัญชีนี้",
+      "auth/wrong-password": "รหัสผ่านไม่ถูกต้อง",
+      "auth/invalid-credential": "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+      "auth/too-many-requests": "ลองผิดหลายครั้งไป รอสักครู่แล้วลองใหม่",
+    };
+    return map[code] || (err && err.message) || "เกิดข้อผิดพลาด";
+  }
+
+  authTabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      authTabs.forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      authMode = tab.dataset.mode;
+      authSubmit.textContent = authMode === "login" ? "เข้าห้อง" : "สร้างบัญชี";
+      authError.textContent = "";
+    });
+  });
+
+  authForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    authError.textContent = "";
+    const email = document.getElementById("auth-username").value.trim();
+    const password = document.getElementById("auth-password").value;
+    if(!email || !password){ authError.textContent = "กรอกให้ครบก่อนนะ"; return; }
+    authSubmit.disabled = true;
+    try{
+      if(authMode === "signup"){
+        await signup(email, password);
+      } else {
+        await login(email, password);
+      }
+      // onAuthStateChanged below handles showing the room + loading memories
+    }catch(err){
+      authError.textContent = friendlyAuthError(err);
+    }finally{
+      authSubmit.disabled = false;
+    }
+  });
+
+  document.getElementById("logout-btn").addEventListener("click", async () => {
+    await logoutFirebase();
+    // onAuthStateChanged below handles clearing the scene + showing auth screen
+  });
+
+  // ------------------------------------------------------------------
+  // Boot — Firebase Auth drives the whole flow, including session
+  // persistence across visits (it remembers you automatically)
+  // ------------------------------------------------------------------
+  onAuthStateChanged(auth, async (user) => {
+    if(user){
+      currentUser = user;
+      authScreen.classList.add("hidden");
+      document.getElementById("intro").classList.remove("hidden");
+      authForm.reset();
+      authError.textContent = "";
+      try{
+        await loadMemoriesForCurrentUser();
+      }catch(err){
+        console.error("failed to load memories", err);
+      }
+    } else {
+      currentUser = null;
+      clearSceneMemories();
+      document.getElementById("intro").classList.add("hidden");
+      authScreen.classList.remove("hidden");
+    }
+  });
 
   document.getElementById("enter-btn").addEventListener("click", () => {
     document.getElementById("intro").classList.add("hidden");
